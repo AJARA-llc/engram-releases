@@ -1,0 +1,60 @@
+name: Prune old releases
+
+# Every published release invalidates the ones before it — most existing
+# releases predate the v0.1.10 fix for a bug that could delete a client's
+# entire vault, so leaving old ones downloadable is a real risk, not just
+# clutter. Keep only the newest KEEP_COUNT and delete the rest (release +
+# git tag) automatically. Runs on every publish, and can be triggered by
+# hand from the Actions tab for a one-off cleanup.
+#
+# Security note: this workflow reads NO untrusted event payload fields
+# (no issue/PR/commit title or body). The only external input is the
+# workflow_dispatch "keep_count" field, which a maintainer types by hand
+# (not attacker-controlled) and which is passed through an `env:` var and
+# used only as a numeric slice bound — never interpolated into a shell
+# string or passed to `eval`.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      keep_count:
+        description: "How many most-recent releases to keep"
+        required: false
+        default: "2"
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete releases older than the newest N
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KEEP_COUNT: ${{ github.event.inputs.keep_count || '2' }}
+        run: |
+          set -euo pipefail
+
+          # Non-draft releases, newest first. Drafts are left alone —
+          # they aren't published download targets.
+          mapfile -t tags < <(
+            gh release list --repo "$REPO" --limit 100 \
+              --json tagName,createdAt,isDraft \
+              --jq '[.[] | select(.isDraft==false)] | sort_by(.createdAt) | reverse | .[].tagName'
+          )
+
+          total=${#tags[@]}
+          echo "found $total published release(s); keeping newest $KEEP_COUNT"
+
+          if [ "$total" -le "$KEEP_COUNT" ]; then
+            echo "nothing to prune"
+            exit 0
+          fi
+
+          for tag in "${tags[@]:$KEEP_COUNT}"; do
+            echo "deleting release + tag: $tag"
+            gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
+          done
