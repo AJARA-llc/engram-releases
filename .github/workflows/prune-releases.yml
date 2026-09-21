@@ -42,8 +42,8 @@ jobs:
           # they aren't published download targets.
           mapfile -t tags < <(
             gh release list --repo "$REPO" --limit 100 \
-              --json tagName,createdAt,isDraft \
-              --jq '[.[] | select(.isDraft==false)] | sort_by(.createdAt) | reverse | .[].tagName'
+              --json tagName,publishedAt,isDraft \
+              --jq '[.[] | select(.isDraft==false)] | sort_by(.publishedAt) | reverse | .[].tagName'
           )
 
           total=${#tags[@]}
